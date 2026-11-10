@@ -1,0 +1,18 @@
+# Secretos (nunca subir)
+.streamlit/secrets.toml
+# Entorno y temporales
+.venv/
+__pycache__/
+# Datos locales
+*.db
+data/browser_profile/
+data/yolo/
+data/recortes/
+data/reto_placas/
+data/etiquetas_clase.csv
+models/runs/
+# Copia repetida del proyecto
+plateguardai/
+# Reportes de prueba (contienen placas reales del dataset)
+data/pruebas/
+data/scraper_debug/

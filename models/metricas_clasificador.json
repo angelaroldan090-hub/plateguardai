@@ -1,0 +1,73 @@
+{
+ "modelo": "YOLOv8n-cls (clasificaci\u00f3n de placas)",
+ "historial": {
+  "val_accuracy": [
+   0.92453,
+   0.99057,
+   0.99057,
+   0.99057,
+   0.96226,
+   0.99057,
+   0.99057,
+   0.99057,
+   0.99057,
+   0.99057
+  ],
+  "train_loss": [
+   0.79483,
+   0.20164,
+   0.07282,
+   0.08933,
+   0.06926,
+   0.05061,
+   0.04439,
+   0.06574,
+   0.04004,
+   0.03627
+  ],
+  "val_loss": [
+   0.16292,
+   0.05516,
+   0.07372,
+   0.09598,
+   0.27103,
+   0.19463,
+   0.12195,
+   0.13898,
+   0.13487,
+   0.11728
+  ]
+ },
+ "clases": [
+  "internacional_carro",
+  "nacional_carro",
+  "nacional_moto"
+ ],
+ "matriz_confusion": [
+  [
+   62,
+   0,
+   0
+  ],
+  [
+   0,
+   43,
+   0
+  ],
+  [
+   0,
+   1,
+   0
+  ]
+ ],
+ "conteos": {
+  "internacional_carro": 344,
+  "nacional_carro": 253,
+  "nacional_moto": 7
+ },
+ "conteos_tras_augmentation": {
+  "internacional_carro": 344,
+  "nacional_carro": 253,
+  "nacional_moto": 200
+ }
+}

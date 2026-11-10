@@ -1,0 +1,7 @@
+# Versión local completa (computador): incluye scraping y EasyOCR
+-r requirements.txt
+playwright
+easyocr
+# para entrenar los modelos:
+# ultralytics
+# tensorflow

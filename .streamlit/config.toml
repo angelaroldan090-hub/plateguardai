@@ -1,0 +1,14 @@
+[theme]
+base = "light"
+primaryColor = "#0A66FF"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6F9"
+textColor = "#1A202C"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+address = "0.0.0.0"   # accesible desde el celular en la misma red Wi-Fi
+maxUploadSize = 25

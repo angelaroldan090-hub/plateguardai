@@ -1,0 +1,11 @@
+# Versión web (Streamlit Community Cloud) — liviana
+streamlit>=1.40
+opencv-python-headless>=4.8
+numpy
+pandas
+pillow
+beautifulsoup4
+pytesseract
+sqlalchemy>=2.0
+psycopg2-binary
+tzdata

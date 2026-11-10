@@ -1,0 +1,100 @@
+"""Orquestador: imagen -> preprocesamiento -> detección -> OCR -> clasificación -> cruce -> alerta."""
+from __future__ import annotations
+
+import time
+
+from . import alerts, classifier, database as db, detection, ocr, preprocessing, scraper
+
+
+def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scraping=None,
+                    navegador_visible=True, placa_manual: str | None = None, anonimizar=True, origen="imagen"):
+    t0 = time.perf_counter()
+    tiempos = {}
+
+    etapas = preprocessing.preprocesar(img_bgr, clip_limit, tile, denoise)
+    tiempos["preprocesamiento"] = time.perf_counter() - t0
+
+    t = time.perf_counter()
+    base = etapas["clahe"]
+    dets = detection.detectar_placas(base)
+    tiempos["detección"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    lecturas = [ocr.leer_placa(d.recorte) for d in dets]
+    tiempos["OCR"] = time.perf_counter() - t
+
+    # Se elige el candidato cuya lectura tiene formato de placa (no el de mayor puntaje de color):
+    # en fotos reales el casco, la carrocería o un letrero también pueden ser amarillos o blancos.
+    def _calidad(par):
+        d, l = par
+        formato = max(classifier.por_formato(l["texto"]).values()) if l["texto"] else 0
+        return (formato >= 0.6, formato, l["confianza"], d.score)
+
+    mejor = max(zip(dets, lecturas), key=_calidad) if dets else None
+
+    # Se descartan candidatos secundarios sin texto legible (ruedas, faros, letreros)
+    pares = [(d, l) for d, l in zip(dets, lecturas) if max(classifier.por_formato(l["texto"]).values()) >= 0.6 or (mejor and d is mejor[0])]
+    if pares:
+        dets, lecturas = [p[0] for p in pares], [p[1] for p in pares]
+        if mejor:
+            i = dets.index(mejor[0])
+            dets.insert(0, dets.pop(i)); lecturas.insert(0, lecturas.pop(i))
+
+    placa = (placa_manual or (mejor[1]["texto"] if mejor else "")).upper()
+    t = time.perf_counter()
+    if mejor and not placa_manual:
+        placa = _resolver_carro_moto(mejor[1]["texto_bruto"], placa, mejor[0].recorte)
+        mejor[1]["texto"] = placa
+    clasif = classifier.clasificar(placa, mejor[0].recorte) if mejor else None
+    tiempos["clasificación"] = time.perf_counter() - t
+
+    resultado_alerta, scraping_res = None, {}
+    if placa:
+        t = time.perf_counter()
+        resultado_alerta, scraping_res = consultar(placa, clasif, fuentes_scraping, navegador_visible, anonimizar, origen)
+        tiempos["consulta"] = time.perf_counter() - t
+
+    anotada = detection.dibujar(base, dets, [l["texto"] or None for l in lecturas])
+    tiempos["total"] = time.perf_counter() - t0
+    return {
+        "etapas": etapas, "detecciones": dets, "lecturas": lecturas, "anotada": anotada,
+        "placa": placa, "clasificacion": clasif, "alerta": resultado_alerta,
+        "scraping": scraping_res, "tiempos": tiempos,
+        "sugerencias": db.placas_similares(placa) if placa and resultado_alerta and not resultado_alerta["registrado"] else [],
+    }
+
+
+def _resolver_carro_moto(bruto: str, placa: str, recorte):
+    """Si la lectura admite una versión de carro (ABC123) y otra de moto (ABC12D) casi igual de
+    probables (confusiones 6/G, 0/D, 8/B…), decide con la clasificación visual del recorte."""
+    cands = ocr.candidatos_placa(bruto)
+    if not cands:
+        return placa
+    mejor_costo = cands[0][2]
+    alternativas = {}
+    for texto, tipo, costo in cands:
+        if costo <= mejor_costo + 2 and tipo not in alternativas:
+            alternativas[tipo] = (texto, costo)
+    if len(alternativas) < 2:
+        return placa
+    puntajes = {}
+    for tipo, (texto, costo) in alternativas.items():
+        p = classifier.clasificar(texto, recorte)["probabilidades"]
+        puntajes[texto] = p[f"nacional_{tipo}"] - 0.05 * costo
+    return max(puntajes, key=puntajes.get)
+
+
+def consultar(placa, clasif=None, fuentes_scraping=None, navegador_visible=True, anonimizar=True, origen="manual"):
+    placa = placa.upper().strip()
+    local = db.registro_completo(placa)
+    scraping_res = {}
+    if fuentes_scraping:
+        scraping_res = scraper.consultar_todas(placa, fuentes_scraping, visible=navegador_visible)
+    datos_scraping = {scraper.FUENTES[f]["nombre"]: r.datos for f, r in scraping_res.items() if r.datos}
+    servicio_publico = bool(local["vehiculo"] and "público" in (local["vehiculo"]["servicio"] or "").lower())
+    res = alerts.evaluar(placa, clasif, local, datos_scraping, servicio_publico)
+    res["local"] = local
+    fuentes = ["local"] + [f for f, r in scraping_res.items() if r.datos]
+    db.registrar_consulta(placa, (clasif or {}).get("clase", "—"), res["categoria"], res["nivel"],
+                          fuentes, origen, anonimizar)
+    return res, scraping_res
