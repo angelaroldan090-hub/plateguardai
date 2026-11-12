@@ -18,6 +18,9 @@ A_LETRA = {"0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G", "7": "T",
 
 def _easyocr():
     global _EASY
+    import os
+    if os.environ.get("PLATEGUARD_OCR", "").lower() == "tesseract":   # forzar Tesseract (pruebas / web)
+        return None
     if _EASY is None:
         try:
             import easyocr  # type: ignore
@@ -130,9 +133,11 @@ def _ajustar(cad: str, patron: str) -> tuple[str, int]:
     return "".join(out), cambios
 
 
-def candidatos_placa(texto: str) -> list[tuple[str, str, int]]:
-    """Todas las placas colombianas posibles dentro del texto leído: (placa, tipo, cambios).
-    Ej.: 'IGNP75F' -> GNP75F (moto). Así se descartan bordes, tornillos o letras de la ciudad."""
+def candidatos_detalle(texto: str) -> list[tuple[str, str, int, int, str]]:
+    """Placas colombianas posibles dentro del texto leído: (placa, tipo, costo, correcciones, patrón).
+    Ej.: 'IGNP75F' -> GNP75F (moto). Así se descartan bordes, tornillos o letras de la ciudad.
+    El formato antiguo de moto (ABC12) NO admite correcciones: con 5 caracteres, cambiar uno
+    'inventa' una placa a partir de una lectura incompleta (caso MG650 -> MGG50)."""
     t = _limpiar(texto)
     res = []
     for tipo, patron in FORMATOS_CO:
@@ -142,11 +147,37 @@ def candidatos_placa(texto: str) -> list[tuple[str, str, int]]:
             if len(cad) < n:
                 continue
             placa, cambios = _ajustar(cad, patron)
-            if placa:
-                # penaliza correcciones, caracteres sobrantes y el formato antiguo de moto
-                costo = cambios * 2 + (len(t) - n) + (2 if patron == "LLLDD" else 0)
-                res.append((placa, tipo, costo))
+            if not placa:
+                continue
+            if patron == "LLLDD" and cambios > 0:
+                continue
+            # penaliza correcciones, caracteres sobrantes y el formato antiguo de moto
+            costo = cambios * 2 + (len(t) - n) + (2 if patron == "LLLDD" else 0)
+            res.append((placa, tipo, costo, cambios, patron))
     return sorted(res, key=lambda r: r[2])
+
+
+def candidatos_placa(texto: str) -> list[tuple[str, str, int]]:
+    return [(p, t, c) for p, t, c, _, _ in candidatos_detalle(texto)]
+
+
+def evaluar_lectura(bruto: str, final: str, confianza: float) -> dict:
+    """¿La placa leída es confiable o hay que pedir confirmación al agente?"""
+    from .config import MAX_CORRECCIONES_OCR, UMBRAL_CONFIANZA_OCR
+    motivos = []
+    det = next((c for c in candidatos_detalle(bruto) if c[0] == final), None)
+    correcciones = det[3] if det else 0
+    if not final:
+        motivos.append("No se pudo leer la placa")
+    elif det is None and len(final) < 6:
+        motivos.append(f"Lectura incompleta: «{final}» no completa ningún formato de placa")
+    elif det and det[4] == "LLLDD":
+        motivos.append(f"Lectura de 5 caracteres («{final}»): puede faltar un carácter")
+    if correcciones > MAX_CORRECCIONES_OCR:
+        motivos.append(f"Se corrigieron {correcciones} caracteres de la lectura original «{_limpiar(bruto)}»")
+    if final and confianza < UMBRAL_CONFIANZA_OCR:
+        motivos.append(f"Confianza del OCR baja ({confianza:.0%}; mínimo {UMBRAL_CONFIANZA_OCR:.0%})")
+    return {"correcciones": correcciones, "requiere_confirmacion": bool(motivos), "motivos": motivos}
 
 
 def corregir_formato_colombiano(texto: str) -> str:
@@ -167,6 +198,22 @@ def corregir_formato_colombiano(texto: str) -> str:
 def _costo(t: str) -> int:
     c = candidatos_placa(t)
     return c[0][2] if c else 99
+
+
+def _confianza_tesseract(pytesseract, imagen, psm: int, texto: str) -> float:
+    """Tesseract 5 reporta confianza 0 cuando se restringen los caracteres (whitelist).
+    Se hace una segunda lectura sin restricción para obtener la confianza real, y solo se acepta
+    si esa lectura coincide con la primera; si no coinciden, la lectura es dudosa (confianza baja)."""
+    data = pytesseract.image_to_data(imagen, config=f"--oem 3 --psm {psm}", output_type=pytesseract.Output.DICT)
+    palabras = [(str(w), float(c)) for w, c in zip(data["text"], data["conf"]) if str(w).strip() and float(c) >= 0]
+    if not palabras or not _limpiar(texto):
+        return 0.0
+    libre = _limpiar("".join(w for w, _ in palabras))
+    objetivo = _limpiar(texto)
+    from .database import _distancia
+    if _distancia(libre, objetivo) > 1:
+        return 0.3   # las dos lecturas no coinciden: dudosa
+    return float(np.mean([c for _, c in palabras]) / 100)
 
 
 def leer_placa(recorte_bgr: np.ndarray, corregir: bool = True) -> dict:
@@ -203,13 +250,13 @@ def leer_placa(recorte_bgr: np.ndarray, corregir: bool = True) -> dict:
             psm = 6 if dos_lineas else 7
             cfg = f"--oem 3 --psm {psm} -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             texto = pytesseract.image_to_string(entrada, config=cfg)
-            data = pytesseract.image_to_data(entrada, config=cfg, output_type=pytesseract.Output.DICT)
-            confs = [float(c) for w, c in zip(data["text"], data["conf"]) if str(w).strip() and float(c) >= 0]
-            conf = float(np.mean(confs) / 100) if confs else (0.5 if texto.strip() else 0.0)
+            conf = _confianza_tesseract(pytesseract, entrada, psm, texto)
         except Exception as e:  # pragma: no cover
             motor = f"error: {e}"
 
     bruto = _limpiar(texto)
     final = corregir_formato_colombiano(bruto) if corregir else bruto
+    calidad = evaluar_lectura(bruto, final, conf)
     return {"texto": final, "texto_bruto": bruto, "confianza": round(conf, 3), "motor": motor, "binaria": binaria,
+            **calidad,
             "segmentada": entrada, "n_caracteres": len(cajas), "dos_lineas": dos_lineas}

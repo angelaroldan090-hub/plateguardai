@@ -195,12 +195,26 @@ def registro_completo(placa: str) -> dict:
     return {"vehiculo": v[0] if v else None, "documentos": docs, "multas": multas, "reportes": reps}
 
 
+def _distancia(a: str, b: str) -> int:
+    """Distancia de edición (sustituir, insertar o borrar un carácter)."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
 def placas_similares(placa: str, max_dif: int = 1) -> list[str]:
-    """Placas registradas que difieren en <= max_dif caracteres (errores típicos de OCR: J/I, 0/O, 8/B)."""
+    """Placas registradas a distancia de edición <= max_dif: un carácter cambiado (J/I, 0/O, 8/B)
+    o uno que falta o sobra (caso MG650 -> OMG650)."""
+    if not placa:
+        return []
     with conexion() as con:
         todas = [r[0] for r in _q(con, "SELECT placa FROM vehiculos")]
-    return [p for p in todas if p != placa and len(p) == len(placa)
-            and sum(a != b for a, b in zip(p, placa)) <= max_dif]
+    return [p for p in todas if p != placa and abs(len(p) - len(placa)) <= max_dif
+            and _distancia(p, placa) <= max_dif]
 
 
 TABLAS = {"vehiculos", "documentos", "multas", "reportes", "cache_scraping", "solicitudes", "nodos", "consultas",

@@ -74,11 +74,21 @@ def evaluar(placa: str, deteccion: dict | None, local: dict, scraping: dict | No
             if deteccion.get("naturaleza") and veh["naturaleza"] != deteccion["naturaleza"]:
                 hallazgos.append(("CLONACION", f"Naturaleza registrada {veh['naturaleza']} ≠ observada {deteccion['naturaleza']}", "Cruce imagen/registro"))
 
+    # ---- Fuentes que sí verificaron el vehículo ----
+    # Una fuente verifica si devolvió una lectura válida del vehículo. "No matriculado en Medellín"
+    # o un error de lectura NO verifican nada.
+    verificado_en = ["Base de datos del sistema"] if veh else []
+    for fuente, datos in (scraping or {}).items():
+        if datos and not datos.get("error_lectura") and not datos.get("no_matriculado"):
+            verificado_en.append(fuente)
+
     # ---- Resultado ----
     if hallazgos:
         principal = max(hallazgos, key=lambda h: CATEGORIAS_ALERTA[h[0]]["nivel"])[0]
-    else:
+    elif verificado_en:
         principal = "NORMAL"
+    else:
+        principal = "SIN_REGISTRO"   # sin información ≠ sin alertas
     info = CATEGORIAS_ALERTA[principal]
 
     tipo = (deteccion or {}).get("tipo") or (veh or {}).get("tipo") or "carro"
@@ -93,5 +103,6 @@ def evaluar(placa: str, deteccion: dict | None, local: dict, scraping: dict | No
         "categorias_presentes": sorted({h[0] for h in hallazgos}, key=lambda c: -CATEGORIAS_ALERTA[c]["nivel"]),
         "pico_y_placa": pyp,
         "registrado": veh is not None,
+        "verificado_en": verificado_en,
         "vehiculo": veh,
     }

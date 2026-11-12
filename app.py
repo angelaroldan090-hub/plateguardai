@@ -115,16 +115,33 @@ def mostrar_resultado(r: dict):
             return
         st.markdown(ui.placa_html(r["placa"], (clasif or {}).get("color_fondo"), (clasif or {}).get("naturaleza")),
                     unsafe_allow_html=True)
-        st.caption(f"OCR: {r['lecturas'][0]['motor']} · confianza {r['lecturas'][0]['confianza']:.0%} · "
-                   f"lectura bruta «{r['lecturas'][0]['texto_bruto']}»")
-        if r.get("sugerencias"):
-            st.warning(f"La placa {r['placa']} no está registrada. Posible error de lectura; "
-                       "confirme si corresponde a una placa registrada:")
+        lect = r["lecturas"][0]
+        st.caption(f"OCR: {lect['motor']} · confianza de la lectura {lect['confianza']:.0%} · "
+                   f"lectura original «{lect['texto_bruto']}»"
+                   + (f" · {lect.get('correcciones', 0)} carácter(es) corregido(s)" if lect.get("correcciones") else ""))
+
+        def _confirmar(placa_ok: str):
+            res, scr = pipeline.consultar(placa_ok, clasif, fuentes_sel, nav_visible, anonimizar, origen="confirmada")
+            r.update(placa=placa_ok, alerta=res, scraping=scr, sugerencias=[], requiere_confirmacion=False)
+            st.rerun()
+
+        if r.get("requiere_confirmacion"):
+            # Lectura no confiable: NO se muestra ningún resultado hasta que el agente confirme la placa
+            ui.tarjeta_confirmacion(r["placa"], r.get("motivos_confirmacion", []))
+            opciones = list(dict.fromkeys(r.get("sugerencias", [])))
+            for sug in opciones:
+                if st.button(f"Es la placa {sug} (registrada)", key=f"sug_{sug}", use_container_width=True):
+                    _confirmar(sug)
+            if r["placa"] and st.button(f"Verifiqué la placa física: es {r['placa']}", key="conf_leida",
+                                        use_container_width=True):
+                _confirmar(r["placa"])
+            st.caption("Si no es ninguna, escriba la placa correcta en «Corregir placa» y pulse Analizar vehículo.")
+            return
+        if r.get("sugerencias") and alerta and not alerta["registrado"]:
+            st.warning(f"La placa {r['placa']} no está registrada. Si fue un error de lectura, confirme la correcta:")
             for sug in r["sugerencias"]:
-                if st.button(f"Confirmar placa {sug}", key=f"sug_{sug}", use_container_width=True):
-                    res, scr = pipeline.consultar(sug, clasif, fuentes_sel, nav_visible, anonimizar, origen="corrección")
-                    r.update(placa=sug, alerta=res, scraping=scr, sugerencias=[])
-                    st.rerun()
+                if st.button(f"Es la placa {sug}", key=f"sug_{sug}", use_container_width=True):
+                    _confirmar(sug)
         if alerta:
             ui.tarjeta_alerta(alerta)
         else:
@@ -432,12 +449,18 @@ elif pagina == "Entrenamiento":
         h = m["historial"]
         a1.line_chart(pd.DataFrame({k: h[k] for k in ("mAP50", "mAP50-95", "precision", "recall")}), height=230)
         a1.caption("Métricas de validación por época")
-        comp = m["comparacion_validacion"]
-        a2.dataframe(pd.DataFrame({
-            "Métrica": ["Encuentra la placa", "Lee un formato válido", "Segundos por imagen"],
-            "Detector clásico": [f"{comp['clasico']['encuentra_placa']:.1%}", f"{comp['clasico']['lectura_valida']:.1%}", f"{comp['clasico']['seg_imagen']} s"],
-            "YOLO entrenado": [f"{comp['yolo']['encuentra_placa']:.1%}", f"{comp['yolo']['lectura_valida']:.1%}", f"{comp['yolo']['seg_imagen']} s"],
-        }), hide_index=True, use_container_width=True)
+        filas = []
+        for clave in ("comparacion_validacion", "comparacion_validacion_tesseract"):
+            comp = m.get(clave)
+            if not comp:
+                continue
+            motor = comp.get("motor_ocr", "")
+            for nombre, k in (("Detector clásico", "clasico"), ("YOLO entrenado", "yolo")):
+                filas.append({"OCR": motor, "Detector": nombre,
+                              "Encuentra la placa": f"{comp[k]['encuentra_placa']:.1%}",
+                              "Lee un formato válido": f"{comp[k]['lectura_valida']:.1%}",
+                              "Segundos por imagen": f"{comp[k]['seg_imagen']} s"})
+        a2.dataframe(pd.DataFrame(filas), hide_index=True, use_container_width=True)
         a2.caption("Comparación sobre las 105 imágenes reales de validación")
     if mc.exists():
         m = json.loads(mc.read_text())

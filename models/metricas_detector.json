@@ -1,5 +1,5 @@
 {
- "modelo": "YOLOv8n (detecci\u00f3n de placas)",
+ "modelo": "YOLOv8n (detección de placas)",
  "imagenes": {
   "entrenamiento": 597,
   "validacion": 105,
@@ -79,7 +79,7 @@
   "mAP50": 0.988,
   "mAP50-95": 0.763
  },
- "comparacion_validacion": {
+ "comparacion_validacion_tesseract": {
   "clasico": {
    "encuentra_placa": 0.66,
    "lectura_valida": 0.486,
@@ -89,6 +89,21 @@
    "encuentra_placa": 0.981,
    "lectura_valida": 0.657,
    "seg_imagen": 0.289
+  },
+  "motor_ocr": "Tesseract (versión web)"
+ },
+ "comparacion_validacion": {
+  "motor_ocr": "EasyOCR (versión local)",
+  "clasico": {
+   "encuentra_placa": 0.66,
+   "lectura_valida": 0.571,
+   "seg_imagen": 1.232
+  },
+  "yolo": {
+   "encuentra_placa": 0.991,
+   "lectura_valida": 0.943,
+   "seg_imagen": 0.464
   }
- }
+ },
+ "nota": "Medido el 12/11/2026 sobre 105 imágenes reales de validación; lectura_valida = el sistema entrega una placa con formato válido (sin reconstrucciones)."
 }

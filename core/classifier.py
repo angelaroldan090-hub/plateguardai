@@ -110,8 +110,8 @@ def clasificar(texto: str, recorte_bgr: np.ndarray) -> dict:
     """Combina las fuentes de evidencia de forma separada por eje:
     - Naturaleza (nacional / internacional): CNN (muy confiable: separa placas colombianas y extranjeras)
       + formato del texto + color de fondo.
-    - Tipo (carro / moto): formato del texto (ABC123 vs ABC12D) + geometría del recorte; la CNN aporta poco
-      porque el dataset tiene muy pocas motos (desbalance de clases).
+    - Tipo (carro / moto): formato del texto (ABC123 vs ABC12D) + geometría del recorte + CNN. Desde que la
+      CNN se reentrenó con las placas reales de moto del set1, su voto pesa la mitad (antes 15 %).
     """
     f = por_formato(texto)
     g = por_geometria(recorte_bgr)
@@ -143,7 +143,7 @@ def clasificar(texto: str, recorte_bgr: np.ndarray) -> dict:
         p_moto = g["nacional_moto"]
     p_moto = 0.8 * p_moto + 0.2 * g["nacional_moto"]
     if c:
-        p_moto = 0.85 * p_moto + 0.15 * c["nacional_moto"]
+        p_moto = 0.5 * p_moto + 0.5 * c["nacional_moto"]
 
     probs = {
         "nacional_carro": p_nac * (1 - p_moto), "nacional_moto": p_nac * p_moto,

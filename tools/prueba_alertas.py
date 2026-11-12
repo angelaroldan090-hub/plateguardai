@@ -70,6 +70,10 @@ def main(rutas):
         # 1) el sistema lee la placa (sin registro todavía)
         r0 = pipeline.procesar_imagen(img, anonimizar=True, origen="prueba")
         placa = r0["placa"]
+        if r0.get("requiere_confirmacion"):
+            print(f"{Path(ruta).name[:40]:40s} lectura no confiable: {'; '.join(r0['motivos_confirmacion'])}")
+            filas.append((ruta, nombre, f"{placa} (requiere confirmación)", None, r0))
+            continue
         if not placa:
             filas.append((ruta, nombre, "(no leída)", None, r0))
             continue

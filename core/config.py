@@ -83,8 +83,17 @@ CATEGORIAS_ALERTA = {
     "NORMAL": {
         "nivel": 0, "color": "#2E7D32", "codigo": "N0",
         "titulo": "Sin alertas",
-        "descripcion": "El vehículo no registra novedades.",
+        "descripcion": "Vehículo verificado: no registra novedades en las fuentes consultadas.",
         "protocolo": "Continuar. No es necesario detener el vehículo.",
+    },
+    # No es "sin alertas": la placa no está en la base y ninguna fuente en línea respondió.
+    # El sistema NO pudo verificar el vehículo y no debe decir "continuar".
+    "SIN_REGISTRO": {
+        "nivel": 1, "color": "#5F6B7A", "codigo": "SR1",
+        "titulo": "Sin información del vehículo",
+        "descripcion": "La placa no está en la base de datos y no hubo respuesta de las fuentes en línea. "
+                       "El vehículo NO fue verificado.",
+        "protocolo": "No asumir que está en regla. Verificar la placa y solicitar documentos; consultar a la central.",
     },
     "MULTAS_DEUDA": {
         "nivel": 1, "color": "#A16207", "codigo": "MD1",
@@ -151,6 +160,11 @@ COLORES_PLACA_CO = {
     "rojo": "Transitorio / importación",
     "verde": "Zona de frontera / otros",
 }
+
+# Lectura de la placa: por debajo de esta confianza del OCR se pide confirmación al agente
+UMBRAL_CONFIANZA_OCR = 0.55
+# Correcciones de caracteres (O->0, 6->G…) a partir de las cuales la lectura se considera dudosa
+MAX_CORRECCIONES_OCR = 1
 
 # Ley 1581 de 2012 (Habeas Data): minimizar datos personales en el historial
 ANONIMIZAR_HISTORIAL_POR_DEFECTO = True

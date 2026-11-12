@@ -140,6 +140,8 @@ def placa_html(texto: str, color: str = "amarillo", naturaleza: str = "nacional"
 def tarjeta_alerta(res: dict):
     info = res["info"]
     nivel_txt = {0: "Sin riesgo", 1: "Riesgo bajo", 2: "Riesgo medio", 3: "Riesgo alto"}[info["nivel"]]
+    if res.get("categoria") == "SIN_REGISTRO":
+        nivel_txt = "Sin verificar"
     st.markdown(f"""
     <div class="alerta" style="border-left-color:{info['color']}">
       <div class="cab" style="background:{info['color']}"><span>Código {info['codigo']}</span><span>Nivel {info['nivel']} · {nivel_txt}</span></div>
@@ -149,6 +151,10 @@ def tarjeta_alerta(res: dict):
         <div class="protocolo"><b>Protocolo de actuación</b>{info['protocolo']}</div>
       </div>
     </div>""", unsafe_allow_html=True)
+    if res.get("verificado_en"):
+        st.caption("Verificado en: " + ", ".join(res["verificado_en"]))
+    elif res["categoria"] != "SIN_REGISTRO":
+        st.caption("Basado en reportes de las fuentes en línea; el vehículo no está en la base de datos del sistema.")
     otras = [c for c in res["categorias_presentes"] if c != res["categoria"]]
     if otras:
         st.markdown("Novedades adicionales: " + "".join(
@@ -162,6 +168,22 @@ def tarjeta_alerta(res: dict):
         st.caption(f"Restricción vehicular (pico y placa): sin restricción para el dígito {pyp['digito']}. Dígitos restringidos hoy: {hoy}.")
 
 
+def tarjeta_confirmacion(placa: str, motivos: list[str]):
+    """Lectura no confiable: se pide confirmación; no se muestra ninguna alerta."""
+    lista = "".join(f"<li>{m}</li>" for m in motivos)
+    st.markdown(f"""
+    <div class="alerta" style="border-left-color:#B7791F">
+      <div class="cab" style="background:#B7791F"><span>Lectura no confiable</span><span>Sin resultado</span></div>
+      <div class="cuerpo">
+        <div class="titulo" style="color:#B7791F">Confirme la placa antes de continuar</div>
+        <div>El sistema leyó «{placa or '—'}», pero la lectura no es confiable:</div>
+        <ul style="margin:.4rem 0 0 1.1rem">{lista}</ul>
+        <div class="protocolo"><b>Protocolo de actuación</b>Compare con la placa física y confírmela. Mientras tanto,
+        no hay información sobre el vehículo: no asuma que está en regla.</div>
+      </div>
+    </div>""", unsafe_allow_html=True)
+
+
 def tarjeta(k, v):
     st.markdown(f'<div class="tarjeta"><div class="k">{k}</div><div class="v">{v}</div></div>', unsafe_allow_html=True)
 
@@ -169,7 +191,11 @@ def tarjeta(k, v):
 def hallazgos_tabla(res: dict):
     import pandas as pd
     if not res["hallazgos"]:
-        st.success("No se encontraron registros negativos en las fuentes consultadas.")
+        if res.get("categoria") == "SIN_REGISTRO":
+            st.info("Sin registros: el vehículo no pudo verificarse (no está en la base de datos y las fuentes "
+                    "en línea no respondieron). La ausencia de registros NO significa que esté en regla.")
+        else:
+            st.success("Vehículo verificado sin registros negativos en: " + ", ".join(res.get("verificado_en", [])) + ".")
         return
     df = pd.DataFrame(res["hallazgos"])
     df["categoría"] = df["categoria"].map(lambda c: f"{CATEGORIAS_ALERTA[c]['codigo']} · {CATEGORIAS_ALERTA[c]['titulo']}")

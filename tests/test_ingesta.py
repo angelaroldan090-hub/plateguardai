@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-os.environ.setdefault("DATABASE_URL", f"sqlite:///{Path(tempfile.mkdtemp()) / 'ingesta.db'}")
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(tempfile.mkdtemp()) / 'ingesta.db'}"  # siempre aislada
 from core import database as db, scraper  # noqa: E402
 from tests.test_portales import SIMIT_MULTA, MEDELLIN_OK  # noqa: E402
 import nodo_scraping  # noqa: E402

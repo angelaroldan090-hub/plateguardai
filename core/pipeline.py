@@ -48,11 +48,26 @@ def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scrap
     clasif = classifier.clasificar(placa, mejor[0].recorte) if mejor else None
     tiempos["clasificación"] = time.perf_counter() - t
 
+    # ¿La lectura es confiable? Si no, NO se emite resultado: se pide confirmación al agente.
+    # (Una lectura incompleta reconstruida como placa válida llevaría a consultar otro vehículo.)
+    if placa_manual:
+        calidad = {"requiere_confirmacion": False, "motivos": [], "correcciones": 0}
+    elif mejor:
+        calidad = ocr.evaluar_lectura(mejor[1]["texto_bruto"], placa, mejor[1]["confianza"])
+    else:
+        calidad = {"requiere_confirmacion": False, "motivos": [], "correcciones": 0}
+
     resultado_alerta, scraping_res = None, {}
-    if placa:
+    if placa and not calidad["requiere_confirmacion"]:
         t = time.perf_counter()
         resultado_alerta, scraping_res = consultar(placa, clasif, fuentes_scraping, navegador_visible, anonimizar, origen)
         tiempos["consulta"] = time.perf_counter() - t
+
+    sugerencias = []
+    if placa and (calidad["requiere_confirmacion"] or (resultado_alerta and not resultado_alerta["registrado"])):
+        sugerencias = db.placas_similares(placa)
+        if mejor:
+            sugerencias += [p for p in db.placas_similares(ocr._limpiar(mejor[1]["texto_bruto"])) if p not in sugerencias]
 
     anotada = detection.dibujar(base, dets, [l["texto"] or None for l in lecturas])
     tiempos["total"] = time.perf_counter() - t0
@@ -60,7 +75,8 @@ def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scrap
         "etapas": etapas, "detecciones": dets, "lecturas": lecturas, "anotada": anotada,
         "placa": placa, "clasificacion": clasif, "alerta": resultado_alerta,
         "scraping": scraping_res, "tiempos": tiempos,
-        "sugerencias": db.placas_similares(placa) if placa and resultado_alerta and not resultado_alerta["registrado"] else [],
+        "requiere_confirmacion": calidad["requiere_confirmacion"], "motivos_confirmacion": calidad["motivos"],
+        "sugerencias": sugerencias,
     }
 
 

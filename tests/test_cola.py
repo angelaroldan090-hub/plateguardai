@@ -7,6 +7,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Base de datos TEMPORAL y aislada: esta prueba nunca debe tocar la base real (local ni Supabase),
+# ni atender solicitudes de scraping reales que estén en cola.
+import tempfile  # noqa: E402
+os.environ["DATABASE_URL"] = f"sqlite:///{Path(tempfile.mkdtemp()) / 'cola.db'}"
 from core import database as db, scraper  # noqa: E402
 from tests.test_portales import SIMIT_MULTA as HTML  # noqa: E402
 
