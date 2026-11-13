@@ -51,7 +51,7 @@ FUENTES = {
 }
 
 PAUSA_ENTRE_CONSULTAS = 3.0  # segundos
-ESPERA_MEDELLIN_SEG = 120    # el portal de Medellín es lento: hasta 2 minutos por paso
+ESPERA_MEDELLIN_SEG = 60     # el portal de Medellín es lento: hasta 1 minuto por paso
 
 
 # ---------------------------------------------------------------------------
@@ -764,7 +764,7 @@ def _buscar_simit(page, placa: str, espera_seg: int) -> str:
 
 
 def consultar_todas(placa: str, fuentes: list[str], visible: bool = True,
-                    esperar_seg: int = 300) -> dict[str, ResultadoScraping]:
+                    esperar_seg: int = 150) -> dict[str, ResultadoScraping]:
     """Consulta todas las fuentes. En la web, si quedaron solicitudes en cola para el nodo, espera
     automáticamente (hasta `esperar_seg`) a que el nodo las resuelva, sin intervención del usuario."""
     res = {f: consultar_fuente(placa, f, visible=visible) for f in fuentes}
