@@ -106,6 +106,9 @@ def nodo_continuo(fuentes, visible, cada_min):
     log(f"Ingesta continua cada {cada_min} min · {len(seg)} placas en seguimiento · fuentes: {', '.join(fuentes)}")
     if not seg:
         log("La lista de seguimiento está vacía. Agregue placas con --seguir o desde la app (Base de datos y scraping).")
+    n = db.recuperar_solicitudes()
+    if n:
+        log(f"Se recuperaron {n} solicitudes que quedaron sin terminar")
     log("Atendiendo solicitudes… (Ctrl+C para salir)")
     proxima = datetime.now()   # primera ingesta al arrancar
     revisar_sesion = datetime.now()

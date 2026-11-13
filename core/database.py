@@ -269,10 +269,15 @@ def cache_set(placa: str, fuente: str, datos: dict):
 # ---------------------------------------------------------------------------
 def crear_solicitud(placa: str, fuente: str) -> int:
     with conexion() as con:
-        ya = _q(con, "SELECT id FROM solicitudes WHERE placa=:p AND fuente=:f AND estado IN ('pendiente','en_proceso')",
-                {"p": placa, "f": fuente}).scalar()
-        if ya:
-            return ya
+        filas = _filas(_q(con, "SELECT id, estado, creada FROM solicitudes WHERE placa=:p AND fuente=:f "
+                               "AND estado IN ('pendiente','en_proceso')", {"p": placa, "f": fuente}))
+        ahora = datetime.now(timezone.utc)
+        for f in filas:
+            # Una solicitud reciente se reutiliza; una vieja (p. ej. el nodo se cerró a mitad de la consulta)
+            # se da por perdida para que no bloquee las consultas nuevas de esa placa.
+            if (ahora - _leer_fecha(f["creada"])).total_seconds() < 300:
+                return f["id"]
+            _q(con, "UPDATE solicitudes SET estado='error', mensaje='Solicitud vencida' WHERE id=:i", {"i": f["id"]})
         return _q(con, "INSERT INTO solicitudes (placa, fuente, estado, creada) VALUES (:p, :f, 'pendiente', :t) RETURNING id",
                   {"p": placa, "f": fuente, "t": _ahora()}).scalar()
 
@@ -282,6 +287,12 @@ def estado_solicitud(placa: str, fuente: str) -> dict | None:
         r = _filas(_q(con, "SELECT * FROM solicitudes WHERE placa=:p AND fuente=:f ORDER BY id DESC LIMIT 1",
                       {"p": placa, "f": fuente}))
     return r[0] if r else None
+
+
+def recuperar_solicitudes() -> int:
+    """Al arrancar el nodo: las solicitudes que quedaron 'en_proceso' (nodo cerrado a mitad) vuelven a la cola."""
+    with conexion() as con:
+        return _q(con, "UPDATE solicitudes SET estado='pendiente' WHERE estado='en_proceso'").rowcount or 0
 
 
 def tomar_solicitudes(limite: int = 5) -> list[dict]:
