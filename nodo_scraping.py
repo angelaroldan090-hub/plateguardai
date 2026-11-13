@@ -64,6 +64,7 @@ def atender_solicitudes(fuentes, visible) -> int:
             db.cerrar_solicitud(s["id"], False, "Fuente no habilitada en este nodo")
             continue
         log(f"Solicitud #{s['id']}: {s['placa']} en {scraper.FUENTES[s['fuente']]['nombre']}")
+        db.latido_nodo(NOMBRE, f"consultando {s['placa']}")   # la web sabe que el nodo sigue activo
         r = scraper.ejecutar_scraping(s["placa"], s["fuente"], visible=visible)
         db.cerrar_solicitud(s["id"], r.ok, r.mensaje)
         log(f"  -> {'OK' if r.ok else 'ERROR'}: {r.mensaje}")
@@ -74,6 +75,7 @@ def atender_solicitudes(fuentes, visible) -> int:
 def ciclo_ingesta(fuentes, visible, horas_vigencia, proxima) -> tuple[int, int]:
     """Refresca las placas en seguimiento cuyo resultado tiene más de `horas_vigencia`."""
     trabajo = [(p, f) for p, f in db.pendientes_de_ingesta(horas_vigencia) if f in fuentes]
+    trabajo.sort(key=lambda pf: 0 if pf[1] == "simit" else 1)   # SIMIT primero, Medellín después
     if not trabajo:
         log("Ingesta: todas las placas en seguimiento están al día.")
         return 0, 0

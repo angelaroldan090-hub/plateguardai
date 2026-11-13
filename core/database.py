@@ -286,7 +286,8 @@ def estado_solicitud(placa: str, fuente: str) -> dict | None:
 
 def tomar_solicitudes(limite: int = 5) -> list[dict]:
     with conexion() as con:
-        filas = _filas(_q(con, "SELECT * FROM solicitudes WHERE estado='pendiente' ORDER BY id LIMIT :n", {"n": limite}))
+        filas = _filas(_q(con, "SELECT * FROM solicitudes WHERE estado='pendiente' "
+                                 "ORDER BY CASE WHEN fuente='simit' THEN 0 ELSE 1 END, id LIMIT :n", {"n": limite}))
         for f in filas:
             _q(con, "UPDATE solicitudes SET estado='en_proceso' WHERE id=:i", {"i": f["id"]})
     return filas

@@ -251,7 +251,7 @@ elif pagina == "Consulta por placa":
             buscar = st.form_submit_button("Consultar", type="primary", use_container_width=True)
     st.caption("Placas de ejemplo en la base local: " + " · ".join(db.tabla("vehiculos")["placa"].tolist()))
     if buscar and placa:
-        with st.spinner("Cruzando registros…"):
+        with st.spinner("Buscando en SIMIT y Movilidad Medellín (puede tardar hasta 1 minuto)…"):
             st.session_state["consulta"] = (placa, *pipeline.consultar(placa, None, fuentes_sel, nav_visible,
                                                                         anonimizar, origen="manual"))
     if "consulta" in st.session_state:

@@ -51,7 +51,15 @@ FUENTES = {
 }
 
 PAUSA_ENTRE_CONSULTAS = 3.0  # segundos
-ESPERA_MEDELLIN_SEG = 60     # el portal de Medellín es lento: hasta 1 minuto por paso
+ESPERA_MEDELLIN_SEG = 15     # tiempo máximo TOTAL de la búsqueda en el portal de Medellín
+_limite_medellin = 0.0       # momento en que se agota ese tiempo (lo fija ejecutar_scraping)
+
+
+def _restante_medellin(minimo: float = 1.0) -> float:
+    """Segundos que quedan del presupuesto total de Medellín."""
+    return max(minimo, _limite_medellin - time.time())
+PAUSA_PORTAL_CAIDO_MIN = 20  # si un portal no responde, no se insiste durante este tiempo
+_portal_caido_hasta: dict[str, float] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -458,25 +466,36 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
     from playwright.sync_api import TimeoutError as PWTimeout
     from playwright.sync_api import sync_playwright
 
-    global _ultima_captura
+    global _ultima_captura, _limite_medellin
     _ultima_captura = None
+    # Si el portal falló hace poco (caído o bloqueando la conexión), no se insiste: se responde de una vez
+    # para que la app muestre rápido las demás fuentes y el portal no alargue el bloqueo.
+    hasta = _portal_caido_hasta.get(fuente, 0)
+    if time.time() < hasta:
+        mins = max(1, int((hasta - time.time()) / 60))
+        return ResultadoScraping(False, None, f"{FUENTES[fuente]['nombre']} no respondió hace poco; "
+                                 f"se volverá a intentar en {mins} min")
     url = FUENTES[fuente]["url"].format(placa=placa)
-    if fuente == "medellin":
-        espera_resultado_seg = max(espera_resultado_seg, ESPERA_MEDELLIN_SEG)
-    t_carga = max(45, espera_resultado_seg) * 1000
+    es_medellin = fuente == "medellin"
+    if es_medellin:
+        _limite_medellin = time.time() + ESPERA_MEDELLIN_SEG   # toda la búsqueda dura máximo 15 s
+        t_carga = ESPERA_MEDELLIN_SEG * 1000
+    else:
+        t_carga = max(45, espera_resultado_seg) * 1000
     try:
         with sync_playwright() as pw:
             ctx = _contexto(pw, visible=visible)
             page = ctx.new_page()
-            for intento in range(3):   # el portal de Medellín a veces cierra la conexión: se reintenta
+            intentos = 1 if es_medellin else 3   # Medellín: un solo intento dentro de los 15 s
+            for intento in range(intentos):
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
                     break
                 except Exception:
-                    if intento == 2:
+                    if intento == intentos - 1:
                         raise
                     page.wait_for_timeout(5000)
-            page.wait_for_timeout(3000)
+            page.wait_for_timeout(1000 if es_medellin else 3000)
 
             if fuente == "medellin":
                 if _en_login_medellin(page):
@@ -484,10 +503,10 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
                         ctx.close()
                         return ResultadoScraping(False, None, "El portal de Medellín pidió iniciar sesión. Configure la "
                                                  "cuenta en secrets.toml [medellin] o ejecute: python nodo_scraping.py --login")
-                    page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
-                    page.wait_for_timeout(3000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=int(_restante_medellin() * 1000))
+                    page.wait_for_timeout(1000)
                 try:
-                    html = _buscar_medellin(page, placa, espera_resultado_seg)
+                    html = _buscar_medellin(page, placa, _restante_medellin())
                 except Exception:
                     _capturar(page, fuente)
                     raise
@@ -503,7 +522,11 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
                 html = page.content()
             ctx.close()
     except Exception as e:
-        return ResultadoScraping(False, None, f"Error de scraping: {str(e).splitlines()[0]}"
+        texto_error = str(e)
+        if any(k in texto_error for k in ("ERR_CONNECTION", "ERR_TIMED_OUT", "ERR_NAME_NOT_RESOLVED",
+                                          "net::", "Timeout")):
+            _portal_caido_hasta[fuente] = time.time() + PAUSA_PORTAL_CAIDO_MIN * 60
+        return ResultadoScraping(False, None, f"Error de scraping: {texto_error.splitlines()[0]}"
                                  + (f" · Captura: {_ultima_captura}" if _ultima_captura else ""))
 
     datos = parsear_resultado(html, fuente)
@@ -575,8 +598,8 @@ def _esperar_visible(page, texto: str, seg: float) -> bool:
 def _ir_a_estado_vehiculo(page):
     """Trámites y servicios -> Consultas -> Estado del vehículo, como lo hace una persona.
     Si el submenú no se despliega, activa directamente la opción (existe en la página aunque esté oculta)."""
-    _clic_visible(page, "Trámites y servicios", timeout=ESPERA_MEDELLIN_SEG * 1000)
-    _esperar_visible(page, "Consultas", 5)
+    _clic_visible(page, "Trámites y servicios", timeout=int(_restante_medellin() * 1000))
+    _esperar_visible(page, "Consultas", min(5, _restante_medellin()))
     cons = _visible_texto(page, "Consultas").first
     # 1) pasar el mouse sobre "Consultas" (el submenú se abre hacia la derecha)
     try:
@@ -632,7 +655,7 @@ def _buscar_medellin(page, placa: str, espera_seg: int) -> str:
     if _casilla_placa_medellin(page) is None:
         _ir_a_estado_vehiculo(page)
     campo = None
-    limite = time.time() + ESPERA_MEDELLIN_SEG
+    limite = _limite_medellin
     while time.time() < limite and campo is None:
         campo = _casilla_placa_medellin(page)
         if campo is None:
@@ -643,7 +666,7 @@ def _buscar_medellin(page, placa: str, espera_seg: int) -> str:
     campo.fill("")
     campo.press_sequentially(placa, delay=90)
     page.wait_for_timeout(400)
-    if not _clic_buscar(page, campo, espera_seg):
+    if not _clic_buscar(page, campo, _restante_medellin()):
         _guardar_html_debug(page, campo, "medellin")
         raise RuntimeError("Se escribió la placa pero no aparecieron resultados tras pulsar Buscar")
     page.wait_for_timeout(1200)
@@ -721,11 +744,13 @@ def _clic_buscar(page, campo, espera_seg: int) -> bool:
 
     for intento in (clic_mouse_texto, clic_boton_siguiente, enter, clic_js):
         try:
-            if intento() and _esperar_resultado_medellin(page, 10):
+            if intento() and _esperar_resultado_medellin(page, min(10, _restante_medellin())):
                 return True
+            if time.time() >= _limite_medellin:
+                return False
         except Exception:
             continue
-    return _esperar_resultado_medellin(page, espera_seg)
+    return _esperar_resultado_medellin(page, min(espera_seg, _restante_medellin(0)))
 
 
 def _guardar_html_debug(page, campo, fuente: str):
@@ -764,13 +789,16 @@ def _buscar_simit(page, placa: str, espera_seg: int) -> str:
 
 
 def consultar_todas(placa: str, fuentes: list[str], visible: bool = True,
-                    esperar_seg: int = 150) -> dict[str, ResultadoScraping]:
+                    esperar_seg: int = 150, usar_cache: bool = False) -> dict[str, ResultadoScraping]:
     """Consulta todas las fuentes. En la web, si quedaron solicitudes en cola para el nodo, espera
     automáticamente (hasta `esperar_seg`) a que el nodo las resuelva, sin intervención del usuario."""
-    res = {f: consultar_fuente(placa, f, visible=visible) for f in fuentes}
+    fuentes = sorted(fuentes, key=lambda f: 0 if f == "simit" else 1)   # SIMIT primero, Medellín después
+    # Cada consulta abre el scraping (usar_cache=False): el resultado sale después de buscar en línea
+    res = {f: consultar_fuente(placa, f, visible=visible, usar_cache=usar_cache) for f in fuentes}
     pendientes = [f for f, r in res.items() if r.pendiente]
-    if pendientes and esperar_seg and not puede_scrapear_aqui() and db.estado_nodos() and \
-            any(n["en_linea"] for n in db.estado_nodos()):
+    # Se espera al nodo si dio señal de vida en los últimos 5 min (puede estar ocupado con otra consulta)
+    if pendientes and esperar_seg and not puede_scrapear_aqui() and \
+            any(n["en_linea"] for n in db.estado_nodos(300)):
         limite = time.time() + esperar_seg
         while pendientes and time.time() < limite:
             time.sleep(3)
