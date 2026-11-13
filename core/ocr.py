@@ -1,6 +1,7 @@
 """Lectura de caracteres (OCR) de la placa recortada.
 
-Motor preferido: EasyOCR (pip install easyocr). Respaldo: Tesseract (pytesseract).
+Motor preferido: red OCR especializada en placas (fast-plate-ocr, modelo CCT global en ONNX, MIT),
+incluida en models/ocr_placas. Respaldos: EasyOCR y Tesseract.
 Incluye corrección por posición según el formato colombiano (letras/dígitos).
 """
 from __future__ import annotations
@@ -11,6 +12,7 @@ import cv2
 import numpy as np
 
 _EASY = None
+_PLACAS = None
 
 A_DIGITO = {"O": "0", "Q": "0", "D": "0", "I": "1", "L": "1", "Z": "2", "S": "5", "B": "8", "G": "6", "T": "7", "A": "4"}
 A_LETRA = {"0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G", "7": "T", "4": "A"}
@@ -30,7 +32,28 @@ def _easyocr():
     return _EASY or None
 
 
+def _ocr_placas():
+    """Red OCR entrenada solo con placas (CCT, fast-plate-ocr). Funciona igual en la web y en el computador."""
+    global _PLACAS
+    import os
+    if os.environ.get("PLATEGUARD_OCR", "").lower() in ("tesseract", "easyocr"):
+        return None
+    if _PLACAS is None:
+        try:
+            from pathlib import Path
+            from fast_plate_ocr import LicensePlateRecognizer  # type: ignore
+            d = Path(__file__).resolve().parent.parent / "models" / "ocr_placas"
+            _PLACAS = LicensePlateRecognizer(onnx_model_path=d / "cct_s_v2_global.onnx",
+                                             plate_config_path=d / "cct_s_v2_global_plate_config.yaml",
+                                             device="cpu")
+        except Exception:
+            _PLACAS = False
+    return _PLACAS or None
+
+
 def motor_disponible() -> str:
+    if _ocr_placas():
+        return "Red OCR de placas (CCT)"
     if _easyocr():
         return "EasyOCR"
     try:
@@ -223,8 +246,17 @@ def leer_placa(recorte_bgr: np.ndarray, corregir: bool = True) -> dict:
     entrada = limpia if cajas else binaria
     texto, conf, motor = "", 0.0, motor_disponible()
 
-    lector = _easyocr()
-    if lector:
+    red = _ocr_placas()
+    lector = None if red else _easyocr()
+    if red:
+        try:
+            pred = red.run(cv2.cvtColor(recorte_bgr, cv2.COLOR_BGR2RGB), return_confidence=True)[0]
+            texto = pred.plate
+            probs = [float(p) for p in pred.char_probs[:len(texto)]]
+            conf = min(probs) if probs else 0.0   # el carácter más dudoso decide la confianza
+        except Exception as e:  # pragma: no cover
+            motor = f"error: {e}"
+    elif lector:
         def _leer_easy(imagen):
             res = lector.readtext(imagen, allowlist="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", detail=1)
             # se toman los 2 trozos más grandes (descarta el nombre de la ciudad)

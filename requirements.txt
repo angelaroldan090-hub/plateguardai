@@ -9,3 +9,4 @@ pytesseract
 sqlalchemy>=2.0
 psycopg2-binary
 tzdata
+fast-plate-ocr[onnx]>=1.1

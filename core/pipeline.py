@@ -20,7 +20,8 @@ def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scrap
     tiempos["detección"] = time.perf_counter() - t
 
     t = time.perf_counter()
-    lecturas = [ocr.leer_placa(d.recorte) for d in dets]
+    # La red OCR de placas lee mejor la foto original (con toda su resolución) que la versión con CLAHE
+    lecturas = [ocr.leer_placa(_recorte_original(img_bgr, base, d)) for d in dets]
     tiempos["OCR"] = time.perf_counter() - t
 
     # Se elige el candidato cuya lectura tiene formato de placa (no el de mayor puntaje de color):
@@ -43,7 +44,9 @@ def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scrap
     placa = (placa_manual or (mejor[1]["texto"] if mejor else "")).upper()
     t = time.perf_counter()
     if mejor and not placa_manual:
-        placa = _resolver_carro_moto(mejor[1]["texto_bruto"], placa, mejor[0].recorte)
+        if not (mejor[1]["motor"].startswith("Red OCR") and mejor[1]["confianza"] >= 0.9):
+            # solo si la lectura es dudosa se decide carro/moto con la imagen (6/G, 0/D, 8/B…)
+            placa = _resolver_carro_moto(mejor[1]["texto_bruto"], placa, mejor[0].recorte)
         mejor[1]["texto"] = placa
     clasif = classifier.clasificar(placa, mejor[0].recorte) if mejor else None
     tiempos["clasificación"] = time.perf_counter() - t
@@ -78,6 +81,16 @@ def procesar_imagen(img_bgr, clip_limit=2.0, tile=8, denoise=True, fuentes_scrap
         "requiere_confirmacion": calidad["requiere_confirmacion"], "motivos_confirmacion": calidad["motivos"],
         "sugerencias": sugerencias,
     }
+
+
+def _recorte_original(original, base, d, margen=0.04):
+    """Recorta la placa en la imagen original, escalando la caja detectada sobre la imagen preprocesada."""
+    fy, fx = original.shape[0] / base.shape[0], original.shape[1] / base.shape[1]
+    mx, my = d.w * margen, d.h * margen
+    y1, y2 = int(max(0, (d.y - my) * fy)), int(min(original.shape[0], (d.y + d.h + my) * fy))
+    x1, x2 = int(max(0, (d.x - mx) * fx)), int(min(original.shape[1], (d.x + d.w + mx) * fx))
+    rec = original[y1:y2, x1:x2]
+    return rec if rec.size else d.recorte
 
 
 def _resolver_carro_moto(bruto: str, placa: str, recorte):
