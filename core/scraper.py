@@ -51,7 +51,7 @@ FUENTES = {
 }
 
 PAUSA_ENTRE_CONSULTAS = 3.0  # segundos
-ESPERA_MEDELLIN_SEG = 60     # el portal de Medellín es lento: hasta 1 minuto por paso
+ESPERA_MEDELLIN_SEG = 120    # el portal de Medellín es lento: hasta 2 minutos por paso
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +468,14 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
         with sync_playwright() as pw:
             ctx = _contexto(pw, visible=visible)
             page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
+            for intento in range(3):   # el portal de Medellín a veces cierra la conexión: se reintenta
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
+                    break
+                except Exception:
+                    if intento == 2:
+                        raise
+                    page.wait_for_timeout(5000)
             page.wait_for_timeout(3000)
 
             if fuente == "medellin":
@@ -757,7 +764,7 @@ def _buscar_simit(page, placa: str, espera_seg: int) -> str:
 
 
 def consultar_todas(placa: str, fuentes: list[str], visible: bool = True,
-                    esperar_seg: int = 150) -> dict[str, ResultadoScraping]:
+                    esperar_seg: int = 300) -> dict[str, ResultadoScraping]:
     """Consulta todas las fuentes. En la web, si quedaron solicitudes en cola para el nodo, espera
     automáticamente (hasta `esperar_seg`) a que el nodo las resuelva, sin intervención del usuario."""
     res = {f: consultar_fuente(placa, f, visible=visible) for f in fuentes}
