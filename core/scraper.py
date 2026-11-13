@@ -51,6 +51,7 @@ FUENTES = {
 }
 
 PAUSA_ENTRE_CONSULTAS = 3.0  # segundos
+ESPERA_MEDELLIN_SEG = 60     # el portal de Medellín es lento: hasta 1 minuto por paso
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +378,7 @@ def abrir_para_login(fuente: str = "medellin", espera_seg: int = 180) -> str:
     with sync_playwright() as pw:
         ctx = _contexto(pw, visible=True)
         page = ctx.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.goto(url, wait_until="domcontentloaded", timeout=ESPERA_MEDELLIN_SEG * 1000)
         page.wait_for_timeout(2000)
         if fuente == "medellin" and _login_medellin_automatico(page):
             _guardar_sesion(ctx)
@@ -460,11 +461,14 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
     global _ultima_captura
     _ultima_captura = None
     url = FUENTES[fuente]["url"].format(placa=placa)
+    if fuente == "medellin":
+        espera_resultado_seg = max(espera_resultado_seg, ESPERA_MEDELLIN_SEG)
+    t_carga = max(45, espera_resultado_seg) * 1000
     try:
         with sync_playwright() as pw:
             ctx = _contexto(pw, visible=visible)
             page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
             page.wait_for_timeout(3000)
 
             if fuente == "medellin":
@@ -473,7 +477,7 @@ def ejecutar_scraping(placa: str, fuente: str, visible: bool = True, espera_resu
                         ctx.close()
                         return ResultadoScraping(False, None, "El portal de Medellín pidió iniciar sesión. Configure la "
                                                  "cuenta en secrets.toml [medellin] o ejecute: python nodo_scraping.py --login")
-                    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=t_carga)
                     page.wait_for_timeout(3000)
                 try:
                     html = _buscar_medellin(page, placa, espera_resultado_seg)
@@ -564,7 +568,7 @@ def _esperar_visible(page, texto: str, seg: float) -> bool:
 def _ir_a_estado_vehiculo(page):
     """Trámites y servicios -> Consultas -> Estado del vehículo, como lo hace una persona.
     Si el submenú no se despliega, activa directamente la opción (existe en la página aunque esté oculta)."""
-    _clic_visible(page, "Trámites y servicios", timeout=25000)
+    _clic_visible(page, "Trámites y servicios", timeout=ESPERA_MEDELLIN_SEG * 1000)
     _esperar_visible(page, "Consultas", 5)
     cons = _visible_texto(page, "Consultas").first
     # 1) pasar el mouse sobre "Consultas" (el submenú se abre hacia la derecha)
@@ -621,7 +625,7 @@ def _buscar_medellin(page, placa: str, espera_seg: int) -> str:
     if _casilla_placa_medellin(page) is None:
         _ir_a_estado_vehiculo(page)
     campo = None
-    limite = time.time() + 25
+    limite = time.time() + ESPERA_MEDELLIN_SEG
     while time.time() < limite and campo is None:
         campo = _casilla_placa_medellin(page)
         if campo is None:
@@ -714,7 +718,7 @@ def _clic_buscar(page, campo, espera_seg: int) -> bool:
                 return True
         except Exception:
             continue
-    return _esperar_resultado_medellin(page, max(0, espera_seg - 40))
+    return _esperar_resultado_medellin(page, espera_seg)
 
 
 def _guardar_html_debug(page, campo, fuente: str):
@@ -753,7 +757,7 @@ def _buscar_simit(page, placa: str, espera_seg: int) -> str:
 
 
 def consultar_todas(placa: str, fuentes: list[str], visible: bool = True,
-                    esperar_seg: int = 90) -> dict[str, ResultadoScraping]:
+                    esperar_seg: int = 150) -> dict[str, ResultadoScraping]:
     """Consulta todas las fuentes. En la web, si quedaron solicitudes en cola para el nodo, espera
     automáticamente (hasta `esperar_seg`) a que el nodo las resuelva, sin intervención del usuario."""
     res = {f: consultar_fuente(placa, f, visible=visible) for f in fuentes}
