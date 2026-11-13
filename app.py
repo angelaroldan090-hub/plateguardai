@@ -220,11 +220,16 @@ if pagina == "Verificación en campo":
             sel = st.selectbox("Imagen del dataset", rutas, format_func=lambda p: "/".join(Path(p).parts[-2:]))
             img = cv2.imread(sel)
 
-    corregir = st.text_input("Corregir placa (opcional)", placeholder="Si el OCR se equivoca, escriba la placa aquí",
-                             max_chars=8).upper().replace(" ", "").replace("-", "")
+    # Formulario con botón propio: en el celular no hay que pulsar «Enter» para enviar la placa
+    with st.form("form_correccion", border=False):
+        corregir = st.text_input("Corregir placa (opcional)", placeholder="Si el OCR se equivoca, escriba la placa aquí",
+                                 max_chars=8).upper().replace(" ", "").replace("-", "")
+        usar_placa = st.form_submit_button("Usar esta placa", use_container_width=True)
+    if usar_placa and corregir and img is None:
+        st.info("Cargue la imagen del vehículo y pulse «Analizar vehículo», o use el módulo «Consulta por placa».")
 
     if img is not None:
-        if st.button("Analizar vehículo", type="primary", use_container_width=True):
+        if st.button("Analizar vehículo", type="primary", use_container_width=True) or (usar_placa and corregir):
             with st.spinner("Procesando imagen y consultando SIMIT / Movilidad Medellín…"):
                 st.session_state["ultimo"] = pipeline.procesar_imagen(
                     img, clip, tile, denoise, fuentes_sel, nav_visible, corregir or None, anonimizar, origen=modo)
@@ -237,13 +242,13 @@ if pagina == "Verificación en campo":
 elif pagina == "Consulta por placa":
     ui.encabezado("Consulta por placa")
     st.caption("Consulta directa cuando no hay imagen (p. ej. reporte por radio).")
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        placa = st.text_input("Placa", placeholder="ABC123 · ABC12D · PCD7841", max_chars=8).upper().replace(" ", "").replace("-", "")
-    with c2:
-        st.write("")
-        st.write("")
-        buscar = st.button("Consultar", type="primary", use_container_width=True)
+    # Formulario con botón: funciona en el celular sin la tecla «Enter»
+    with st.form("form_consulta", border=False):
+        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+        with c1:
+            placa = st.text_input("Placa", placeholder="ABC123 · ABC12D · PCD7841", max_chars=8).upper().replace(" ", "").replace("-", "")
+        with c2:
+            buscar = st.form_submit_button("Consultar", type="primary", use_container_width=True)
     st.caption("Placas de ejemplo en la base local: " + " · ".join(db.tabla("vehiculos")["placa"].tolist()))
     if buscar and placa:
         with st.spinner("Cruzando registros…"):
