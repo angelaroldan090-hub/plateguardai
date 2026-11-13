@@ -35,7 +35,6 @@ with st.sidebar:
         "Verificación en campo",
         "Consulta por placa",
         "Preprocesamiento",
-        "Dataset",
         "Entrenamiento",
         "Base de datos y scraping",
         "Historial",
@@ -481,7 +480,7 @@ elif pagina == "Entrenamiento":
             st.dataframe(pd.DataFrame(m["matriz_confusion"], index=m["clases"], columns=m["clases"]), use_container_width=True)
         st.line_chart(pd.DataFrame({k: v for k, v in m["historial"].items()}), height=200)
     if not md.exists() and not mc.exists():
-        st.info("Aún no hay modelos entrenados. Siga los pasos de la pestaña Dataset → Exportar y luego ejecute "
+        st.info("Aún no hay modelos entrenados. Ejecute "
                 "los scripts de `train/`. Mientras tanto el sistema clasifica con reglas (formato + geometría + color).")
 
 # ---------------------------------------------------------------------------
