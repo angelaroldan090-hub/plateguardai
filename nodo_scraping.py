@@ -84,7 +84,7 @@ def ciclo_ingesta(fuentes, visible, horas_vigencia, proxima) -> tuple[int, int]:
     ok = err = 0
     try:
         for placa, fuente in trabajo:
-            atender_solicitudes(fuentes, visible)   # las consultas de la web tienen prioridad
+            atender_solicitudes(_FUENTES_NODO or fuentes, visible)   # las consultas de la web tienen prioridad
             r = scraper.ejecutar_scraping(placa, fuente, visible=visible)
             ok, err = ok + r.ok, err + (not r.ok)
             log(f"  {placa} / {scraper.FUENTES[fuente]['nombre']}: {'OK' if r.ok else 'ERROR ' + r.mensaje}")
@@ -98,12 +98,19 @@ def ciclo_ingesta(fuentes, visible, horas_vigencia, proxima) -> tuple[int, int]:
     return ok, err
 
 
-def nodo_continuo(fuentes, visible, cada_min):
+_FUENTES_NODO: list[str] = []   # fuentes que el nodo atiende para las consultas de la app
+
+
+def nodo_continuo(fuentes, visible, cada_min, fuentes_ingesta=None):
+    global _FUENTES_NODO
+    _FUENTES_NODO = list(fuentes)
+    fuentes_ingesta = fuentes_ingesta if fuentes_ingesta is not None else fuentes
     log(f"Nodo '{NOMBRE}' conectado a: {db.descripcion_motor()}")
     if not db.es_nube():
         log("ADVERTENCIA: no hay base de datos en la nube configurada; la app web no verá estos resultados.")
     seg = db.lista_seguimiento()
-    log(f"Ingesta continua cada {cada_min} min · {len(seg)} placas en seguimiento · fuentes: {', '.join(fuentes)}")
+    log(f"Ingesta continua cada {cada_min} min · {len(seg)} placas en seguimiento · fuentes: {', '.join(fuentes_ingesta)}")
+    log(f"Consultas desde la app: {', '.join(fuentes)} (SIMIT primero)")
     if not seg:
         log("La lista de seguimiento está vacía. Agregue placas con --seguir o desde la app (Base de datos y scraping).")
     n = db.recuperar_solicitudes()
@@ -115,7 +122,7 @@ def nodo_continuo(fuentes, visible, cada_min):
     while True:
         latido(fuentes, proxima)
         atender_solicitudes(fuentes, visible)
-        if "medellin" in fuentes and datetime.now() >= revisar_sesion:
+        if "medellin" in fuentes_ingesta and datetime.now() >= revisar_sesion:
             try:
                 estado = scraper.verificar_sesion_medellin(visible=False)
                 log(f"Sesión de Movilidad Medellín: {estado}")
@@ -126,7 +133,7 @@ def nodo_continuo(fuentes, visible, cada_min):
             revisar_sesion = datetime.now() + timedelta(minutes=20)
         if datetime.now() >= proxima:
             try:
-                ciclo_ingesta(fuentes, visible, horas_vigencia=cada_min / 60, proxima=proxima)
+                ciclo_ingesta(fuentes_ingesta, visible, horas_vigencia=cada_min / 60, proxima=proxima)
             except Exception as e:  # un fallo de red no detiene el nodo
                 log(f"Error en la ingesta: {e}")
             proxima = datetime.now() + timedelta(minutes=cada_min)
@@ -140,6 +147,8 @@ def main():
     ap.add_argument("--placas", help="consulta única de estas placas (separadas por coma)")
     ap.add_argument("--seguir", help="agregar placas a la lista de seguimiento (separadas por coma)")
     ap.add_argument("--fuentes", default="simit,medellin", help="fuentes habilitadas (simit,medellin,runt)")
+    ap.add_argument("--fuentes-ingesta", default="simit",
+                    help="fuentes de la ingesta automática cada 2 h (por defecto solo simit)")
     ap.add_argument("--cada", type=int, default=MAX_MINUTOS_INGESTA, help="minutos entre ingestas (máx. 120)")
     ap.add_argument("--oculto", action="store_true", help="no mostrar la ventana del navegador")
     args = ap.parse_args()
@@ -175,7 +184,8 @@ def main():
         cada = MAX_MINUTOS_INGESTA
     cada = max(cada, 15)  # mínimo razonable para no saturar los portales
     try:
-        nodo_continuo(fuentes, visible=not args.oculto, cada_min=cada)
+        f_ingesta = [f.strip() for f in args.fuentes_ingesta.split(",") if f.strip() in fuentes]
+        nodo_continuo(fuentes, visible=not args.oculto, cada_min=cada, fuentes_ingesta=f_ingesta)
     except KeyboardInterrupt:
         log("Nodo detenido.")
 
