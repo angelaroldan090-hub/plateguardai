@@ -63,10 +63,11 @@ def color_fondo(recorte_bgr: np.ndarray) -> str:
 
 def por_formato(texto: str) -> dict[str, float]:
     """Puntaje por clase según qué formato de placa coincide con el texto."""
+    texto_norm = re.sub(r"[^A-Z0-9]", "", (texto or "").upper())
     puntajes = {c: 0.0 for c in CLASES_VEHICULO}
     for clase, patrones in FORMATOS_PLACA.items():
         for p in patrones:
-            if re.match(p, texto or ""):
+            if re.match(p, texto_norm):
                 # el patrón genérico internacional pesa menos
                 peso = 0.4 if p.startswith("^[A-Z0-9]") else (0.6 if p == r"^[A-Z]{3}\d{2}$" else 1.0)
                 puntajes[clase] = max(puntajes[clase], peso)
@@ -135,15 +136,15 @@ def clasificar(texto: str, recorte_bgr: np.ndarray) -> dict:
 
     # --- tipo ---
     moto_fmt, carro_fmt = max(f["nacional_moto"], f["internacional_moto"]), max(f["nacional_carro"], f["internacional_carro"])
-    if moto_fmt > carro_fmt:
-        p_moto = 0.9 * moto_fmt
-    elif carro_fmt > moto_fmt:
-        p_moto = 0.1 * (1 - carro_fmt) + 0.05
+    p_visual = 0.3 * g["nacional_moto"] + 0.7 * (c["nacional_moto"] if c else g["nacional_moto"])
+    if moto_fmt >= 0.6 and moto_fmt > carro_fmt:
+        # Formato de placa inequívoco de moto (p. ej. ABC12D o ABC12)
+        p_moto = 0.85 + 0.15 * p_visual
+    elif carro_fmt >= 0.6 and carro_fmt > moto_fmt:
+        # Formato de placa inequívoco de carro (p. ej. ABC123)
+        p_moto = 0.15 * p_visual
     else:
-        p_moto = g["nacional_moto"]
-    p_moto = 0.8 * p_moto + 0.2 * g["nacional_moto"]
-    if c:
-        p_moto = 0.5 * p_moto + 0.5 * c["nacional_moto"]
+        p_moto = p_visual
 
     probs = {
         "nacional_carro": p_nac * (1 - p_moto), "nacional_moto": p_nac * p_moto,

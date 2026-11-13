@@ -1,0 +1,7 @@
+.git
+.venv
+__pycache__
+*.pyc
+.streamlit/secrets.toml
+data/reto_placas
+
